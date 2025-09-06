@@ -359,10 +359,8 @@ verify_deployment() {
     sleep 10
     
     # Check service status
-    newgrp docker << 'EOF'
-docker compose ps
-EOF
-
+    sudo docker compose ps
+    
     # Get current IP for service URLs
     CURRENT_IP=$(hostname -I | awk '{print $1}')
     
@@ -380,6 +378,7 @@ EOF
     echo -e "  • Change default passwords in /opt/homelab/configs/.env"
     echo -e "  • Services may take 2-5 minutes to fully start"
     echo -e "  • If static IP didn't apply, you may need to reboot"
+    echo -e "  • You may need to logout/login for Docker group membership"
     echo -e "\n${BLUE}Logs location:${NC} /opt/homelab/configs/"
     echo -e "${BLUE}Manage services:${NC} cd /opt/homelab/configs && docker compose [up|down|restart]"
 }
