@@ -70,48 +70,52 @@ pre_checks() {
 }
 
 # Configure static IP address
+# Set up static IP
 setup_static_ip() {
-    log "Configuring static IP address..."
+    log "Setting up static IP address..."
     
-    # Backup current netplan configuration
-    sudo cp /etc/netplan/*.yaml /etc/netplan/backup-$(date +%Y%m%d_%H%M%S).yaml 2>/dev/null || true
+    # Detect network interface
+    NETWORK_INTERFACE=$(ip route | grep default | awk '{print $5}' | head -1)
+    log "Detected network interface: $NETWORK_INTERFACE"
     
-    # Create new netplan configuration
-    cat << EOF | sudo tee /etc/netplan/01-homelab-static.yaml
-network:
-  version: 2
-  renderer: networkd
-  ethernets:
-    $NETWORK_INTERFACE:
-      dhcp4: false
-      addresses:
-        - $NUC_IP/24
-      routes:
-        - to: default
-          via: $ROUTER_IP
-      nameservers:
-        addresses:
-          - $PI5_IP
-          - 1.1.1.1
-          - 1.0.0.1
-      optional: true
+    # Backup existing interfaces file
+    sudo cp /etc/network/interfaces /etc/network/interfaces.backup-$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
+    
+    # Create new interfaces configuration
+    sudo tee /etc/network/interfaces > /dev/null << EOF
+# This file describes the network interfaces available on your system
+source /etc/network/interfaces.d/*
+
+# The loopback network interface
+auto lo
+iface lo inet loopback
+
+# Static IP configuration for primary interface
+auto $NETWORK_INTERFACE
+iface $NETWORK_INTERFACE inet static
+    address 10.0.0.1
+    netmask 255.255.255.0
+    gateway 10.0.0.254
+    dns-nameservers 10.0.0.2 1.1.1.1
 EOF
 
-    # Apply netplan configuration
-    sudo netplan apply
+    # Restart networking
+    log "Applying network configuration..."
+    sudo systemctl restart networking || {
+        warning "Network restart failed, trying alternative method..."
+        sudo ifdown $NETWORK_INTERFACE && sudo ifup $NETWORK_INTERFACE
+    }
     
-    # Wait for network to stabilize
     sleep 5
     
-    # Verify static IP is set
+    # Verify static IP
     CURRENT_IP=$(ip addr show $NETWORK_INTERFACE | grep "inet " | awk '{print $2}' | cut -d/ -f1)
-    if [[ "$CURRENT_IP" == "$NUC_IP" ]]; then
-        success "Static IP configured successfully: $NUC_IP"
+    if [[ "$CURRENT_IP" == "10.0.0.1" ]]; then
+        success "Static IP configured successfully: $CURRENT_IP"
     else
         warning "Static IP may not have applied correctly. Current IP: $CURRENT_IP"
     fi
 }
-
 # System updates and basic packages
 system_setup() {
     log "Setting up system basics..."
