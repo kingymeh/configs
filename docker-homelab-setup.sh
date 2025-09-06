@@ -1,17 +1,16 @@
 #!/bin/bash
 # docker-homelab-setup.sh - Docker installation and homelab deployment
-# Usage: curl -sSL https://raw.githubusercontent.com/kingymeh/configs/main/docker-homelab-setup.sh | bash
+# Usage: ./docker-homelab-setup.sh
 
-set -euo pipefail
+set -e
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Logging functions
 log() {
     echo -e "${BLUE}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"
 }
@@ -45,15 +44,7 @@ install_docker() {
     sudo apt update && sudo apt upgrade -y
     
     # Install prerequisites
-    sudo apt install -y \
-        apt-transport-https \
-        ca-certificates \
-        curl \
-        gnupg \
-        lsb-release \
-        wget \
-        git \
-        nano
+    sudo apt install -y apt-transport-https ca-certificates curl gnupg lsb-release wget git nano
     
     # Remove old Docker versions
     sudo apt remove -y docker docker-engine docker.io containerd runc || true
@@ -78,28 +69,6 @@ install_docker() {
     success "Docker installation complete"
 }
 
-# Verify Docker installation
-verify_docker() {
-    log "Verifying Docker installation..."
-    
-    # Check Docker version
-    if docker --version &> /dev/null; then
-        success "Docker is installed: $(docker --version)"
-    else
-        error "Docker installation verification failed"
-    fi
-    
-    # Test Docker with hello-world (with group refresh)
-    if newgrp docker << EOF
-docker run --rm hello-world > /dev/null 2>&1
-EOF
-    then
-        success "Docker is working correctly"
-    else
-        warning "Docker test failed - you may need to log out and back in"
-    fi
-}
-
 # Set up static IP
 setup_static_ip() {
     log "Setting up static IP address..."
@@ -112,7 +81,7 @@ setup_static_ip() {
     sudo cp /etc/network/interfaces /etc/network/interfaces.backup-$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
     
     # Create new interfaces configuration
-    cat << EOF | sudo tee /etc/network/interfaces
+    sudo tee /etc/network/interfaces > /dev/null << EOF
 # This file describes the network interfaces available on your system
 source /etc/network/interfaces.d/*
 
@@ -136,7 +105,6 @@ EOF
         sudo ifdown $NETWORK_INTERFACE && sudo ifup $NETWORK_INTERFACE
     }
     
-    # Wait for network to stabilize
     sleep 5
     
     # Verify static IP
@@ -145,7 +113,6 @@ EOF
         success "Static IP configured successfully: $CURRENT_IP"
     else
         warning "Static IP may not have applied correctly. Current IP: $CURRENT_IP"
-        warning "You may need to reboot for changes to take effect"
     fi
 }
 
@@ -156,24 +123,20 @@ create_directories() {
     sudo mkdir -p /opt/homelab/{configs,data,backups,scripts}
     sudo chown -R $USER:$USER /opt/homelab
     
-    # Create service directories
     mkdir -p /opt/homelab/configs/{homeassistant,mosquitto/{config,data,log},mariadb,homarr/{configs,icons,data},portainer,nodered,esphome,code-server}
     
     success "Directory structure created"
 }
 
-# Download and create configurations
-setup_configurations() {
-    log "Setting up configuration files..."
+# Create Docker Compose file
+create_docker_compose() {
+    log "Creating Docker Compose configuration..."
     
     cd /opt/homelab/configs
     
-    # Create docker-compose.yml
-    cat > docker-compose.yml << 'EOF'
+    cat > docker-compose.yml << 'COMPOSE_EOF'
 version: '3.8'
-
 services:
-  # Home Assistant - Smart Home Hub
   homeassistant:
     container_name: homeassistant
     image: ghcr.io/home-assistant/home-assistant:stable
@@ -190,7 +153,6 @@ services:
       - mosquitto
       - mariadb
 
-  # MQTT Broker - Device Communication
   mosquitto:
     container_name: mosquitto
     image: eclipse-mosquitto:latest
@@ -205,7 +167,6 @@ services:
     environment:
       - TZ=${TZ}
 
-  # MariaDB - Database for Home Assistant
   mariadb:
     container_name: homeassistant-db
     image: mariadb:latest
@@ -221,7 +182,6 @@ services:
       - MYSQL_PASSWORD=${MYSQL_PASSWORD}
       - TZ=${TZ}
 
-  # Homarr - Dashboard
   homarr:
     container_name: homarr
     image: ghcr.io/ajnart/homarr:latest
@@ -235,7 +195,6 @@ services:
     environment:
       - TZ=${TZ}
 
-  # Portainer - Docker Management
   portainer:
     container_name: portainer
     image: portainer/portainer-ce:latest
@@ -248,7 +207,6 @@ services:
     environment:
       - TZ=${TZ}
 
-  # ESPHome - Microcontroller Management
   esphome:
     container_name: esphome
     image: ghcr.io/esphome/esphome:latest
@@ -263,7 +221,6 @@ services:
     environment:
       - TZ=${TZ}
 
-  # Node-RED - Visual Automation
   nodered:
     container_name: nodered
     image: nodered/node-red:latest
@@ -277,7 +234,6 @@ services:
     depends_on:
       - mosquitto
 
-  # Code Server - Web-based IDE for development
   code-server:
     container_name: code-server
     image: codercom/code-server:latest
@@ -291,43 +247,44 @@ services:
       - PASSWORD=${CODE_SERVER_PASSWORD}
       - TZ=${TZ}
     user: "1000:1000"
-EOF
+COMPOSE_EOF
 
-    # Create environment file
-    cat > .env << 'EOF'
-# Homelab Environment Configuration
+    success "Docker Compose file created"
+}
+
+# Create environment file
+create_env_file() {
+    log "Creating environment file..."
+    
+    cat > /opt/homelab/configs/.env << 'ENV_EOF'
 TZ=Europe/London
-
-# Database Passwords (CHANGE THESE!)
 MYSQL_ROOT_PASSWORD=homelab_root_password_change_me
 MYSQL_DATABASE=homeassistant
 MYSQL_USER=homeassistant
 MYSQL_PASSWORD=homeassistant_password_change_me
-
-# Code Server Password (CHANGE THIS!)
 CODE_SERVER_PASSWORD=development_password_change_me
-EOF
+ENV_EOF
 
-    # Create MQTT configuration
-    cat > mosquitto/config/mosquitto.conf << 'EOF'
-# Mosquitto configuration
+    success "Environment file created"
+}
+
+# Create MQTT config
+create_mqtt_config() {
+    log "Creating MQTT configuration..."
+    
+    cat > /opt/homelab/configs/mosquitto/config/mosquitto.conf << 'MQTT_EOF'
 persistence true
 persistence_location /mosquitto/data/
 log_dest file /mosquitto/log/mosquitto.log
 log_dest stdout
-
-# Allow anonymous connections (change for production)
 allow_anonymous true
-
-# Listeners
 listener 1883
 protocol mqtt
-
 listener 9001
 protocol websockets
-EOF
+MQTT_EOF
 
-    success "Configuration files created"
+    success "MQTT configuration created"
 }
 
 # Deploy services
@@ -337,15 +294,13 @@ deploy_services() {
     cd /opt/homelab/configs
     
     # Pull Docker images
-    newgrp docker << 'EOF'
-docker compose pull
-EOF
-
+    log "Pulling Docker images..."
+    sudo docker compose pull
+    
     # Start services
-    newgrp docker << 'EOF'
-docker compose up -d
-EOF
-
+    log "Starting services..."
+    sudo docker compose up -d
+    
     success "Services deployed"
 }
 
@@ -354,33 +309,27 @@ verify_deployment() {
     log "Verifying service deployment..."
     
     cd /opt/homelab/configs
-    
-    # Wait a moment for services to start
     sleep 10
     
-    # Check service status
     sudo docker compose ps
     
-    # Get current IP for service URLs
     CURRENT_IP=$(hostname -I | awk '{print $1}')
     
-    success "Deployment verification complete"
-    
-    echo -e "\n${GREEN}=== HOMELAB SETUP COMPLETE ===${NC}"
-    echo -e "${BLUE}Services are starting up and will be available at:${NC}"
+    echo ""
+    echo -e "${GREEN}=== HOMELAB SETUP COMPLETE ===${NC}"
+    echo -e "${BLUE}Services available at:${NC}"
     echo -e "  • Homarr Dashboard: http://$CURRENT_IP:7575"
     echo -e "  • Home Assistant:   http://$CURRENT_IP:8123"
     echo -e "  • Portainer:        http://$CURRENT_IP:9000"
     echo -e "  • ESPHome:          http://$CURRENT_IP:6052"
     echo -e "  • Node-RED:         http://$CURRENT_IP:1880"
     echo -e "  • Code Server:      http://$CURRENT_IP:8443"
-    echo -e "\n${YELLOW}Important:${NC}"
-    echo -e "  • Change default passwords in /opt/homelab/configs/.env"
-    echo -e "  • Services may take 2-5 minutes to fully start"
-    echo -e "  • If static IP didn't apply, you may need to reboot"
-    echo -e "  • You may need to logout/login for Docker group membership"
-    echo -e "\n${BLUE}Logs location:${NC} /opt/homelab/configs/"
-    echo -e "${BLUE}Manage services:${NC} cd /opt/homelab/configs && docker compose [up|down|restart]"
+    echo ""
+    echo -e "${YELLOW}Important:${NC}"
+    echo -e "  • Change passwords in /opt/homelab/configs/.env"
+    echo -e "  • Services may take 2-5 minutes to start"
+    echo -e "  • Logout/login for Docker group membership"
+    echo ""
 }
 
 # Main execution
@@ -389,15 +338,15 @@ main() {
     
     check_user
     install_docker
-    verify_docker
     setup_static_ip
     create_directories
-    setup_configurations
+    create_docker_compose
+    create_env_file
+    create_mqtt_config
     deploy_services
     verify_deployment
     
     log "Setup completed successfully!"
 }
 
-# Run main function
 main "$@"
