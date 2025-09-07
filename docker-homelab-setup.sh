@@ -5,7 +5,7 @@
 set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
 # Configuration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"    
 ENVIRONMENT="${1:-development}"
 CLIENT_NAME="${2:-demo}"
 INSTALL_LOG="/var/log/homelab-install.log"
@@ -96,7 +96,7 @@ iface $NETWORK_INTERFACE inet static
     address 10.0.0.1
     netmask 255.255.255.0
     gateway 10.0.0.254
-    dns-nameservers 10.0.0.2 1.1.1.1
+    dns-nameservers 10.0.0.2 8.8.8.8
 EOF
 
     # Restart networking
@@ -361,14 +361,14 @@ EOF
 # Timezone
 TZ=Europe/London
 
-# Database Passwords (Change these!)
-MYSQL_ROOT_PASSWORD=homelab_root_password_change_me
+# Database Passwords
+MYSQL_ROOT_PASSWORD=LOhFYR3kFMP2Vcf1C1mi
 MYSQL_DATABASE=homeassistant
 MYSQL_USER=homeassistant
-MYSQL_PASSWORD=homeassistant_password_change_me
+MYSQL_PASSWORD=homea55ist4nt
 
-# Code Server Password (Change this!)
-CODE_SERVER_PASSWORD=development_password_change_me
+# Code Server Password
+CODE_SERVER_PASSWORD=c0d45455er
 
 # Network Configuration
 HOMELAB_NETWORK=10.0.0.0/24
