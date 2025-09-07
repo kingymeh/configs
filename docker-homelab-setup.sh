@@ -5,7 +5,7 @@
 set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
 # Configuration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"    
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENVIRONMENT="${1:-development}"
 CLIENT_NAME="${2:-demo}"
 INSTALL_LOG="/var/log/homelab-install.log"
@@ -69,7 +69,6 @@ pre_checks() {
     success "Pre-installation checks passed"
 }
 
-# Configure static IP address
 # Set up static IP
 setup_static_ip() {
     log "Setting up static IP address..."
@@ -96,7 +95,7 @@ iface $NETWORK_INTERFACE inet static
     address 10.0.0.1
     netmask 255.255.255.0
     gateway 10.0.0.254
-    dns-nameservers 10.0.0.2 8.8.8.8
+    dns-nameservers 10.0.0.2 1.1.1.1
 EOF
 
     # Restart networking
@@ -116,6 +115,7 @@ EOF
         warning "Static IP may not have applied correctly. Current IP: $CURRENT_IP"
     fi
 }
+
 # System updates and basic packages
 system_setup() {
     log "Setting up system basics..."
@@ -153,6 +153,9 @@ system_setup() {
         arduino \
         minicom \
         screen
+    
+    # Add user to dialout group for serial device access
+    sudo usermod -aG dialout $USER
     
     success "System setup complete"
 }
@@ -337,21 +340,6 @@ services:
       - TZ=Europe/London
     depends_on:
       - mosquitto
-
-  # Code Server - Web-based IDE for development
-  code-server:
-    container_name: code-server
-    image: codercom/code-server:latest
-    ports:
-      - "8443:8080"
-    volumes:
-      - ./code-server:/home/coder
-      - /opt/homelab:/home/coder/homelab
-    restart: unless-stopped
-    environment:
-      - PASSWORD=${CODE_SERVER_PASSWORD}
-      - TZ=Europe/London
-    user: "1000:1000"
 EOF
 
     # Create environment file
@@ -361,14 +349,11 @@ EOF
 # Timezone
 TZ=Europe/London
 
-# Database Passwords
-MYSQL_ROOT_PASSWORD=LOhFYR3kFMP2Vcf1C1mi
+# Database Passwords (Change these!)
+MYSQL_ROOT_PASSWORD=homelab_root_password_change_me
 MYSQL_DATABASE=homeassistant
 MYSQL_USER=homeassistant
-MYSQL_PASSWORD=homea55ist4nt
-
-# Code Server Password
-CODE_SERVER_PASSWORD=c0d45455er
+MYSQL_PASSWORD=homeassistant_password_change_me
 
 # Network Configuration
 HOMELAB_NETWORK=10.0.0.0/24
@@ -416,7 +401,7 @@ deploy_services() {
     create_docker_configs
     
     # Create necessary directories for volumes
-    mkdir -p /opt/homelab/configs/{homeassistant,mosquitto/{config,data,log},mariadb,homarr/{configs,icons,data},portainer,nodered,esphome,code-server}
+    mkdir -p /opt/homelab/configs/{homeassistant,mosquitto/{config,data,log},mariadb,homarr/{configs,icons,data},portainer,nodered,esphome}
     
     # Deploy Docker Compose stack
     cd /opt/homelab/configs
@@ -518,7 +503,6 @@ Next Steps:
    - Portainer: http://$NUC_IP:9000
    - ESPHome: http://$NUC_IP:6052
    - Node-RED: http://$NUC_IP:1880
-   - Code Server: http://$NUC_IP:8443
 
 3. Configure devices and automations
 4. Change default passwords in /opt/homelab/configs/.env
