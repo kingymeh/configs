@@ -1,5 +1,5 @@
 #!/bin/bash
-# Troubleshoot homepage issues
+# Fix Apache with simpler configuration
 
 log() {
     echo -e "\033[0;34m[$(date +'%Y-%m-%d %H:%M:%S')]\033[0m $1"
@@ -9,107 +9,68 @@ success() {
     echo -e "\033[0;32m[SUCCESS]\033[0m $1"
 }
 
-warning() {
-    echo -e "\033[1;33m[WARNING]\033[0m $1"
-}
+log "Fixing Apache container with simpler configuration..."
 
-log "=== HOMEPAGE TROUBLESHOOTING ==="
-
-# Check container status
-log "1. Checking Apache container status:"
-docker ps | grep homelab-homepage
-
-# Check if container is running or restarting
-if docker ps | grep -q "homelab-homepage.*Up"; then
-    success "Apache container is running"
-    
-    # Get detailed container info
-    log "Container details:"
-    docker inspect homelab-homepage | jq '.[0].State'
-else
-    warning "Apache container is not running properly"
-    
-    log "Container status:"
-    docker ps -a | grep homelab-homepage
-fi
-
-# Check Apache logs
-log ""
-log "2. Checking Apache logs:"
-docker logs homelab-homepage --tail 20
-
-# Check if port 80 is accessible
-log ""
-log "3. Checking port 80 connectivity:"
-if ss -tlnp | grep -q ":80 "; then
-    success "Something is listening on port 80"
-    ss -tlnp | grep ":80 "
-else
-    warning "Nothing listening on port 80"
-fi
-
-# Test HTTP connection
-log ""
-log "4. Testing HTTP connection:"
-timeout 5 curl -v http://10.0.0.1/ 2>&1 || echo "Connection failed"
-
-# Check web files
-log ""
-log "5. Checking web files:"
-ls -la /opt/homelab/web/
-echo "File permissions:"
-ls -la /opt/homelab/web/index.html
-
-# Check if files are readable
-if [[ -r /opt/homelab/web/index.html ]]; then
-    success "index.html is readable"
-    log "File size: $(wc -c < /opt/homelab/web/index.html) bytes"
-else
-    warning "index.html is not readable"
-fi
-
-# Check Apache config
-log ""
-log "6. Checking Apache configuration:"
-if [[ -f /opt/homelab/configs/apache/homepage.conf ]]; then
-    success "Apache config file exists"
-    echo "Config file size: $(wc -c < /opt/homelab/configs/apache/homepage.conf) bytes"
-else
-    warning "Apache config file missing"
-fi
-
-# Check docker-compose configuration
-log ""
-log "7. Checking docker-compose homepage service:"
 cd /opt/homelab/configs
-docker compose config | grep -A 20 "homepage:"
 
-# Try to access directly via container IP
-log ""
-log "8. Testing direct container access:"
-CONTAINER_IP=$(docker inspect homelab-homepage | jq -r '.[0].NetworkSettings.IPAddress')
-if [[ "$CONTAINER_IP" != "null" && "$CONTAINER_IP" != "" ]]; then
-    log "Container IP: $CONTAINER_IP"
-    timeout 5 curl -s "http://$CONTAINER_IP/" | head -n 5
+# Stop and remove the broken container
+log "Stopping broken Apache container..."
+docker compose stop homepage
+docker compose rm -f homepage
+
+# Create a backup of current docker-compose.yml
+cp docker-compose.yml docker-compose.yml.backup-$(date +%Y%m%d_%H%M%S)
+
+# Replace the problematic Apache service with a simpler version
+log "Updating docker-compose.yml with simpler Apache configuration..."
+
+# Remove the old homepage service (everything after "# Apache - Homelab Homepage")
+sed -i '/# Apache - Homelab Homepage/,$d' docker-compose.yml
+
+# Add the corrected Apache service
+cat >> docker-compose.yml << 'EOF'
+
+  # Apache - Homelab Homepage (Simple)
+  homepage:
+    container_name: homelab-homepage
+    image: httpd:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - /opt/homelab/web:/usr/local/apache2/htdocs:ro
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/London
+EOF
+
+log "Starting Apache container with new configuration..."
+docker compose up -d homepage
+
+# Wait for container to start
+sleep 5
+
+# Check if it's working
+if docker ps | grep -q "homelab-homepage.*Up"; then
+    success "Apache container is now running!"
+    
+    # Test homepage
+    sleep 2
+    if curl -s http://10.0.0.1 | grep -q "Homelab Dashboard"; then
+        success "✅ Homepage is accessible at http://10.0.0.1"
+        log ""
+        log "🎉 SUCCESS! Your homepage is now working!"
+        log "📱 Open your browser and go to: http://10.0.0.1"
+        log ""
+        log "From there you can access:"
+        log "• ESPHome (ESP32 development): Click the ESPHome link"
+        log "• Portainer (Docker management): Click the Portainer link"
+        log "• Home Assistant: Click the Home Assistant link"
+        log "• All other services with one click!"
+    else
+        log "Container started but homepage not ready yet. Give it a moment..."
+        log "Try: http://10.0.0.1 in your browser"
+    fi
 else
-    log "Container IP not available (likely using host networking)"
+    log "Container still having issues. Checking logs..."
+    docker logs homelab-homepage
 fi
-
-# Check UFW firewall
-log ""
-log "9. Checking firewall (UFW):"
-sudo ufw status | grep -E "(80|Status)"
-
-# Simple fix suggestions
-log ""
-log "=== POTENTIAL FIXES ==="
-log "Try these commands to fix common issues:"
-log ""
-log "# Restart Apache container:"
-echo "cd /opt/homelab/configs && docker compose restart homepage"
-log ""
-log "# Check if another service is using port 80:"
-echo "sudo netstat -tulpn | grep :80"
-log ""
-log "# Recreate container completely:"
-echo "cd /opt/homelab/configs && docker compose stop homepage && docker compose rm -f homepage && docker compose up -d homepage"
